@@ -1,21 +1,17 @@
-# egern-widget-quota
+# 订阅余量
 
-Egern 订阅余量小组件：最多展示四个来源的剩余流量，每 1440 分钟刷新一次，不预估未知套餐。
+Egern 订阅余量小组件：显示订阅剩余流量与今日用量，每 1440 分钟刷新一次，不预估未知套餐。
 
-A privacy-minded Egern widget that shows subscription traffic quotas for up to four sources.
-
-## 这个仓库只放小组件
-
-- `traffic-quota.widget.yaml`：Egern 模块声明、参数和任务注册。
-- `traffic-quota.widget.js`：小组件脚本。
-
-**不包含任何节点、订阅链接、证书或密码。**所有订阅地址字段默认留空，需要使用者自行在 Egern 中填写；订阅链接只保存在本机，不会显示在组件上。
+A privacy-minded Egern widget that shows a subscription's remaining traffic and today's usage.
 
 ## 安装
 
 1. 在 Egern 中安装本仓库的 `traffic-quota.widget.yaml`。
-2. 组件参数填入来源名称、地区短码和订阅链接。
-3. 先用 `DEMO_MODE=true` 查看样式，改回 `false` 后使用真实数据。
+2. 只填第一个 **订阅链接**；名称、地区码留空会自动识别。
+3. 需要多个来源时，再填第二～第四个订阅链接。
+4. 先用 `DEMO_MODE=true` 查看样式，改回 `false` 后使用真实数据。
+
+名称、地区码、总量、重置日都是可选项；不填时不会编造数据。总量仅在订阅只返回剩余量时用于补足百分比。
 
 ## 特点
 

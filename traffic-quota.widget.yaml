@@ -1,69 +1,70 @@
-name: 三国余量
-description: 手动维护的订阅额度小组件；每1440分钟获取一次，不推估套餐总量。
+name: 订阅余量
+description: 显示订阅剩余流量与今日用量；名称和地区可自动识别，每1440分钟获取一次。
 author: SUMKINGKUNWU
 dns: {}
 env_schema:
   SUB1_URL:
-    name: 来源1 订阅链接
-    description: 仅保存在本机；组件不会显示这个地址
+    name: 订阅链接
+    description: 必填。只保存在本机，组件不会显示这个地址
     default_value: ''
   SUB1_NAME:
-    name: 来源1 名称
-    default_value: 韩国
+    name: 名称（可选，留空自动识别）
+    default_value: ''
   SUB1_REGION:
-    name: 来源1 地区短码
-    default_value: KR
+    name: 地区码（可选，留空自动识别）
+    description: 形如 KR、US、DE；留空时从订阅信息推断
+    default_value: ''
   SUB1_TOTAL_GB:
-    name: 来源1 总量GiB（可选）
-    description: 仅当订阅只返回剩余量时用于显示比例；不会覆盖订阅报告的总量
+    name: 总量 GiB（可选）
+    description: 仅当订阅只返回剩余量时补足比例；不会覆盖订阅报告的总量
     default_value: ''
   SUB1_RESET_DAY:
-    name: 来源1 重置日（可选）
+    name: 重置日（可选，1~31）
     default_value: ''
   SUB2_URL:
-    name: 来源2 订阅链接
+    name: 来源2 订阅链接（可选）
     default_value: ''
   SUB2_NAME:
-    name: 来源2 名称
-    default_value: 美国 A
+    name: 来源2 名称（可选，留空自动识别）
+    default_value: ''
   SUB2_REGION:
-    name: 来源2 地区短码
-    default_value: US-A
+    name: 来源2 地区码（可选，留空自动识别）
+    default_value: ''
   SUB2_TOTAL_GB:
-    name: 来源2 总量GiB（可选）
+    name: 来源2 总量 GiB（可选）
     default_value: ''
   SUB2_RESET_DAY:
-    name: 来源2 重置日（可选）
+    name: 来源2 重置日（可选，1~31）
     default_value: ''
   SUB3_URL:
-    name: 来源3 订阅链接
+    name: 来源3 订阅链接（可选）
     default_value: ''
   SUB3_NAME:
-    name: 来源3 名称
-    default_value: 美国 B
+    name: 来源3 名称（可选，留空自动识别）
+    default_value: ''
   SUB3_REGION:
-    name: 来源3 地区短码
-    default_value: US-B
+    name: 来源3 地区码（可选，留空自动识别）
+    default_value: ''
   SUB3_TOTAL_GB:
-    name: 来源3 总量GiB（可选）
+    name: 来源3 总量 GiB（可选）
     default_value: ''
   SUB3_RESET_DAY:
-    name: 来源3 重置日（可选）
+    name: 来源3 重置日（可选，1~31）
     default_value: ''
   SUB4_URL:
-    name: 来源4 订阅链接
+    name: 来源4 订阅链接（可选）
     default_value: ''
   SUB4_NAME:
-    name: 来源4 名称
-    default_value: 德国
+    name: 来源4 名称（可选，留空自动识别）
+    default_value: ''
   SUB4_REGION:
-    name: 来源4 地区短码
-    default_value: DE
+    name: 来源4 地区码（可选，留空自动识别）
+    default_value: ''
   SUB4_TOTAL_GB:
-    name: 来源4 总量GiB（可选）
+    name: 来源4 总量 GiB（可选）
     default_value: ''
   SUB4_RESET_DAY:
-    name: 来源4 重置日（可选）
+    name: 来源4 重置日（可选，1~31）
     default_value: ''
   REFRESH_MINUTES:
     name: 刷新间隔（分钟）
@@ -79,7 +80,7 @@ env_schema:
     default_value: GiB
   WIDGET_TITLE:
     name: 组件标题
-    default_value: 三国余量
+    default_value: 订阅余量
   SMALL_SOURCE:
     name: 小号组件来源
     description: 1~4，对应已配置的来源顺序
@@ -94,9 +95,9 @@ env_schema:
     default_value: 'false'
 scriptings:
 - generic:
-    name: 三国余量
+    name: 订阅余量
     script_url: https://cdn.jsdelivr.net/gh/SUMKINGKUNWU/-egern-widget-quota-@main/traffic-quota.widget.js
     timeout: 30
 widgets:
-- name: 三国余量
-  script_name: 三国余量
+- name: 订阅余量
+  script_name: 订阅余量

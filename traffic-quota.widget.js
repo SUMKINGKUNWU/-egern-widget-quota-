@@ -1,5 +1,5 @@
 /**
- * 三国余量 · Egern 小组件
+ * 订阅余量 · Egern 小组件
  *
  * 读取订阅的 Subscription-Userinfo 响应头，或正文中的明确流量字段。
  * 不默认任何套餐总量，不把“未提供统计”显示成 0，不自动尝试多种客户端身份。
@@ -366,6 +366,35 @@ function refreshMinutes(env) {
   return Math.min(MAX_REFRESH_MINUTES, Math.max(MIN_REFRESH_MINUTES, Math.round(raw)));
 }
 
+// Best-effort labels derived from the subscription's own node/profile names.
+// These are display hints only: when the source exposes nothing recognizable
+// the user-supplied name and region are kept, and nothing is invented.
+const REGION_HINTS = [
+  [/香港|Hong\s*Kong|HK\b/i, 'HK'],
+  [/台湾|台灣|Taiwan|TW\b/i, 'TW'],
+  [/日本|Japan|JP\b|东京|東京|大阪/i, 'JP'],
+  [/新加坡|狮城|獅城|Singapore|SG\b/i, 'SG'],
+  [/韩国|韓國|Korea|KR\b|首尔|首爾/i, 'KR'],
+  [/美国|美國|United\s*States|USA|US\b/i, 'US'],
+  [/德国|德國|Germany|DE\b/i, 'DE'],
+];
+
+function detectRegion(text, fallback) {
+  const source = String(text || '');
+  for (const [pattern, code] of REGION_HINTS) {
+    if (pattern.test(source)) return code;
+  }
+  return fallback;
+}
+
+function detectProfileName(body) {
+  const text = String(body || '').slice(0, 200000);
+  let match = text.match(/(?:^|\n)\s*(?:profile-name|profileName|title|name)\s*[:=]\s*["']?([^"'\n#]{1,40})/i);
+  if (match) return match[1].trim();
+  match = text.match(/(?:流量|套餐|订阅|机场|机场名)[：:]\s*([^\n<]{1,30})/);
+  return match ? match[1].trim() : '';
+}
+
 function readSources(ctx) {
   const env = ctx.env || {};
   const sources = [];
@@ -374,14 +403,28 @@ function readSources(ctx) {
     if (!url) continue;
     sources.push({
       id: `s${i}`,
-      name: String(env[`SUB${i}_NAME`] || '').trim() || `来源 ${i}`,
+      name: String(env[`SUB${i}_NAME`] || '').trim(),
       region: String(env[`SUB${i}_REGION`] || '').trim().toUpperCase(),
       url,
       totalGb: String(env[`SUB${i}_TOTAL_GB`] || '').trim(),
       resetDay: String(env[`SUB${i}_RESET_DAY`] || '').trim(),
+      detectedName: '',
+      detectedRegion: '',
     });
   }
   return sources;
+}
+
+function applyDetectedLabels(source, body) {
+  const hint = detectProfileName(body);
+  const guessed = detectRegion(hint ? `${hint} ${body.slice(0, 4000)}` : String(body || '').slice(0, 4000), '');
+  return {
+    ...source,
+    name: source.name || source.detectedName || (hint ? hint.slice(0, 16) : '') || '订阅',
+    region: source.region || guessed || '',
+    detectedName: hint,
+    detectedRegion: guessed,
+  };
 }
 
 function demoSources() {
@@ -439,17 +482,20 @@ async function attemptFetch(ctx, source) {
   });
   const status = Number(response?.status || 0);
   const fromHeader = parseUserInfo(readHeader(response?.headers, 'subscription-userinfo'));
-  if (fromHeader) return { traffic: fromHeader, nodeHint: true };
+  const profileName = readHeader(response?.headers, 'profile-title') || '';
   const body = await readBody(response);
   if (looksAccessDenied(status, body)) {
-    return { traffic: null, accessDenied: true, status };
+    return { traffic: null, accessDenied: true, status, body };
   }
+  const label = profileName || body;
+  if (fromHeader) return { traffic: fromHeader, nodeHint: true, label };
   const fromBody = parseBodyInfo(body);
-  if (fromBody) return { traffic: fromBody, nodeHint: true };
+  if (fromBody) return { traffic: fromBody, nodeHint: true, label };
   return {
     traffic: null,
     statsUnavailable: status >= 200 && status < 300,
     status,
+    label,
   };
 }
 
@@ -474,35 +520,26 @@ async function fetchSource(ctx, source, now) {
 
   try {
     const result = await attemptFetch(ctx, source);
-    if (result.accessDenied) {
-      const snapshot = cached
-        ? { ...cached, nextCheckAt: now + ttl, lastError: `订阅拒绝访问（HTTP ${result.status || '未知'}）` }
-        : { traffic: null, updatedAt: now, lastSuccessAt: null, capability: 'error', nextCheckAt: now + ttl, lastError: `订阅拒绝访问（HTTP ${result.status || '未知'}）` };
-      writeCache(ctx, key, snapshot);
-      return materialize(snapshot, source, env, now, 'live');
-    }
+    const labeled = applyDetectedLabels(source, result.label || '');
     if (result.traffic) {
       const day = updateDayStats(cached?.dayStats, result.traffic, now);
-      const snapshot = { traffic: result.traffic, updatedAt: now, lastSuccessAt: now, capability: 'stats', nextCheckAt: now + ttl, ...day };
+      const snapshot = { traffic: result.traffic, updatedAt: now, lastSuccessAt: now, capability: 'stats', nextCheckAt: now + ttl, ...day, label: result.label || '' };
       writeCache(ctx, key, snapshot);
-      return materialize(snapshot, source, env, now, 'live');
+      return materialize(snapshot, labeled, env, now, 'live');
+    }
+    if (result.accessDenied) {
+      const msg = `订阅拒绝访问（HTTP ${result.status || '未知'}）`;
+      const snapshot = cached ? { ...cached, nextCheckAt: now + ttl, lastError: msg }
+        : { traffic: null, updatedAt: now, lastSuccessAt: null, capability: 'error', nextCheckAt: now + ttl, lastError: msg };
+      writeCache(ctx, key, snapshot);
+      return materialize(snapshot, labeled, env, now, 'live');
     }
     if (result.statsUnavailable) {
-      // The subscription answered but exposes no quota; do not retry repeatedly
-      // or fabricate a plan size. Cache the capability for one refresh period.
-      const snapshot = {
-        traffic: null, updatedAt: now, lastSuccessAt: cached?.lastSuccessAt || null,
-        capability: 'unavailable', nextCheckAt: now + ttl,
-      };
-      if (cached?.traffic) {
-        // Keep last known values as stale rather than discarding them, and
-        // persist the new deadline so every widget render does not re-request.
-        const retained = { ...cached, nextCheckAt: now + ttl, capability: 'unavailable' };
-        writeCache(ctx, key, retained);
-        return materialize(retained, source, env, now, 'live');
-      }
+      const snapshot = cached
+        ? { ...cached, nextCheckAt: now + ttl, capability: 'unavailable', label: result.label || cached.label || '' }
+        : { traffic: null, updatedAt: now, lastSuccessAt: null, capability: 'unavailable', nextCheckAt: now + ttl, label: result.label || '' };
       writeCache(ctx, key, snapshot);
-      return materialize(snapshot, source, env, now, 'live');
+      return materialize(snapshot, labeled, env, now, 'live');
     }
     throw new Error(`HTTP ${result.status || '未知'}`);
   } catch (error) {
@@ -905,7 +942,7 @@ function refreshAfter(ctx) {
 
 function titleOf(ctx) {
   const title = String(ctx.env?.WIDGET_TITLE || '').trim();
-  return title || '三国余量';
+  return title || '订阅余量';
 }
 
 function resetInfo(resetDayText) {
