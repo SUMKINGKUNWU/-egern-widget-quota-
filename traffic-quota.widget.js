@@ -323,6 +323,43 @@ function writeCache(ctx, key, value) {
   try { ctx.storage?.setJSON?.(key, value); } catch { /* storage is optional */ }
 }
 
+function localDateKey(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+// Daily usage can only be measured from the source's own counters: the
+// difference between two samples taken on the same local day. Widget renders
+// are not samples, and a quota reset must not be mistaken for negative usage.
+function usageMetric(traffic) {
+  if (!traffic) return null;
+  if (Number.isFinite(traffic.used)) return traffic.used;
+  // When only "remaining" is published, a decrease still means consumption.
+  if (Number.isFinite(traffic.remaining)) return -traffic.remaining;
+  return null;
+}
+
+function updateDayStats(previous, traffic, now) {
+  const metric = usageMetric(traffic);
+  if (metric == null) return { dayStats: previous || null, todayUsed: null, todaySamples: 0 };
+  const today = localDateKey(now);
+  const prev = previous && previous.date === today ? previous : null;
+  if (!prev || !Number.isFinite(prev.baseline) || metric < prev.baseline) {
+    // First sample of a new day, or the counter decreased (quota reset or
+    // plan change): restart the baseline instead of reporting negative usage.
+    return {
+      dayStats: { date: today, baseline: metric, samples: 1, updatedAt: now },
+      todayUsed: null,
+      todaySamples: 1,
+    };
+  }
+  return {
+    dayStats: { date: today, baseline: prev.baseline, samples: prev.samples + 1, updatedAt: now },
+    todayUsed: metric - prev.baseline,
+    todaySamples: prev.samples + 1,
+  };
+}
+
 function refreshMinutes(env) {
   const raw = Number(env?.REFRESH_MINUTES);
   if (!Number.isFinite(raw)) return DEFAULT_REFRESH_MINUTES;
@@ -360,6 +397,13 @@ function demoTariffs(id) {
   if (id === 'kr') return { upload: 12 * GIB, download: 60 * GIB, used: 72 * GIB, total: 200 * GIB, remaining: 128 * GIB, expireAt: null, source: 'demo' };
   if (id === 'us-a') return { upload: 2 * GIB, download: 80 * GIB, used: 82 * GIB, total: 100 * GIB, remaining: 18 * GIB, expireAt: null, source: 'demo' };
   if (id === 'de') return { upload: 60 * GIB, download: 300 * GIB, used: 360 * GIB, total: 1000 * GIB, remaining: 640 * GIB, expireAt: null, source: 'demo' };
+  return null;
+}
+
+function demoTodayUsed(id) {
+  if (id === 'kr') return 7036874417;   // 6.55 GiB
+  if (id === 'us-a') return 4514048942; // 4.20 GiB
+  if (id === 'de') return 20937965568;  // 19.50 GiB
   return null;
 }
 
@@ -420,9 +464,10 @@ async function fetchSource(ctx, source, now) {
 
   if (String(env.DEMO_MODE || '').toLowerCase() === 'true') {
     const traffic = demoTariffs(source.id);
+    const day = updateDayStats(null, traffic, now);
     const snapshot = traffic
-      ? { traffic, updatedAt: now, lastSuccessAt: now, capability: 'stats', nextCheckAt: now + ttl }
-      : { traffic: null, updatedAt: now, lastSuccessAt: null, capability: 'unavailable', nextCheckAt: now + ttl };
+      ? { traffic, updatedAt: now, lastSuccessAt: now, capability: 'stats', nextCheckAt: now + ttl, ...day, demoTodayUsed: demoTodayUsed(source.id) }
+      : { traffic: null, updatedAt: now, lastSuccessAt: null, capability: 'unavailable', nextCheckAt: now + ttl, ...day };
     writeCache(ctx, key, snapshot);
     return materialize(snapshot, source, env, now, 'live');
   }
@@ -437,7 +482,8 @@ async function fetchSource(ctx, source, now) {
       return materialize(snapshot, source, env, now, 'live');
     }
     if (result.traffic) {
-      const snapshot = { traffic: result.traffic, updatedAt: now, lastSuccessAt: now, capability: 'stats', nextCheckAt: now + ttl };
+      const day = updateDayStats(cached?.dayStats, result.traffic, now);
+      const snapshot = { traffic: result.traffic, updatedAt: now, lastSuccessAt: now, capability: 'stats', nextCheckAt: now + ttl, ...day };
       writeCache(ctx, key, snapshot);
       return materialize(snapshot, source, env, now, 'live');
     }
@@ -491,6 +537,9 @@ function materialize(snapshot, source, env, now, fetchMode) {
     lastError: snapshot.lastError || '',
     capability: snapshot.capability,
     fetchMode,
+    todayUsed: Number.isFinite(snapshot.demoTodayUsed) ? snapshot.demoTodayUsed : (snapshot.todayUsed ?? null),
+    todaySamples: snapshot.todaySamples || 0,
+    dayDate: snapshot.dayStats?.date || null,
   };
 }
 
@@ -628,6 +677,17 @@ function detailLine(entry, theme) {
   return text(pieces.join(' · '), 9, theme.muted, 'medium', { minScale: 0.8 });
 }
 
+function todayLabel(entry, theme) {
+  if (!entry.traffic) return text('', 9, theme.muted);
+  if (Number.isFinite(entry.todayUsed)) {
+    return text(`今日 ${formatBytes(entry.todayUsed, null)}`, 9, theme.secondary, 'semibold', { minScale: 0.8 });
+  }
+  // Be explicit that no value exists yet rather than printing 0, and hint the
+  // likely cause when the refresh period is a full day.
+  const hint = entry.todaySamples === 1 ? '今日 -- 待下次刷新' : '今日 --';
+  return text(hint, 9, theme.muted, 'medium', { minScale: 0.7 });
+}
+
 function remainingLabel(entry, theme) {
   if (!entry.traffic) return null;
   const t = entry.traffic;
@@ -681,7 +741,14 @@ function quadCard(entry, theme) {
         type: 'stack', direction: 'column', alignItems: 'start', gap: 2,
         children: [
           meter(entry, theme, 126, 4),
-          ...(remainingLabel(entry, theme) ? [remainingLabel(entry, theme)] : []),
+          {
+            type: 'stack', direction: 'row', alignItems: 'center', gap: 3,
+            children: [
+              ...(remainingLabel(entry, theme) ? [remainingLabel(entry, theme)] : []),
+              ...(remainingLabel(entry, theme) ? [spacer()] : []),
+              todayLabel(entry, theme),
+            ],
+          },
         ],
       },
     ],
@@ -762,7 +829,14 @@ function largeRow(entry, theme) {
         ],
       },
       meter(entry, theme, 300, 4),
-      text(largeRowDetails(entry), 9, theme.muted, 'medium', { minScale: 0.8 }),
+      {
+        type: 'stack', direction: 'row', alignItems: 'center', gap: 6,
+        children: [
+          text(largeRowDetails(entry), 9, theme.muted, 'medium', { minScale: 0.8 }),
+          spacer(),
+          todayLabel(entry, theme),
+        ],
+      },
     ],
   };
 }
@@ -807,6 +881,10 @@ function smallWidget(ctx, entry, theme) {
       remainBig(entry, theme, 30),
       ...(p != null ? [text(`余 ${Math.round(p * 100)}%`, 10, theme.accent, 'semibold')] : []),
       meter(entry, theme, 136, 5),
+      {
+        type: 'stack', direction: 'row', alignItems: 'center', gap: 4,
+        children: [todayLabel(entry, theme), spacer()],
+      },
       text(detailLine(entry, theme).text, 9, theme.muted, 'medium', { minScale: 0.75 }),
       spacer(),
       {
