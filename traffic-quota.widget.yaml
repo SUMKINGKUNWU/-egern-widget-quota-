@@ -1,102 +1,110 @@
 name: 订阅余量
-description: 显示订阅剩余流量与今日用量；名称和地区可自动识别，每1440分钟获取一次。
-author: SUMKINGKUNWU
-dns: {}
+description: 最多 4 个订阅，显示剩余流量、今日用量和重置日；名称与地区可从订阅自动识别
 env_schema:
   SUB1_URL:
-    name: 订阅链接
-    description: 必填。只保存在本机，组件不会显示这个地址
+    name: 订阅1 链接
+    description: 第 1 个订阅地址（必填），只保存在本机
     default_value: ''
   SUB1_NAME:
-    name: 名称（可选，留空自动识别）
+    name: 订阅1 名称
+    description: 显示在组件上的名称，留空自动识别
     default_value: ''
   SUB1_REGION:
-    name: 地区码（可选，留空自动识别）
-    description: 形如 KR、US、DE；留空时从订阅信息推断
-    default_value: ''
-  SUB1_TOTAL_GB:
-    name: 总量 GiB（可选）
-    description: 仅当订阅只返回剩余量时补足比例；不会覆盖订阅报告的总量
+    name: 订阅1 地区码
+    description: 如 KR、US、DE，留空自动识别
     default_value: ''
   SUB1_RESET_DAY:
-    name: 重置日（可选，1~31）
+    name: 订阅1 流量重置日
+    description: 每月几号重置（1~31），留空不显示
+    default_value: ''
+  SUB1_TOTAL_GB:
+    name: 订阅1 套餐总量 (GiB)
+    description: 订阅只返回剩余流量时用来计算总量，留空不估算
     default_value: ''
   SUB2_URL:
-    name: 来源2 订阅链接（可选）
+    name: 订阅2 链接
+    description: 第 2 个订阅地址（可选），只保存在本机
     default_value: ''
   SUB2_NAME:
-    name: 来源2 名称（可选，留空自动识别）
+    name: 订阅2 名称
+    description: 显示在组件上的名称，留空自动识别
     default_value: ''
   SUB2_REGION:
-    name: 来源2 地区码（可选，留空自动识别）
-    default_value: ''
-  SUB2_TOTAL_GB:
-    name: 来源2 总量 GiB（可选）
+    name: 订阅2 地区码
+    description: 如 KR、US、DE，留空自动识别
     default_value: ''
   SUB2_RESET_DAY:
-    name: 来源2 重置日（可选，1~31）
+    name: 订阅2 流量重置日
+    description: 每月几号重置（1~31），留空不显示
+    default_value: ''
+  SUB2_TOTAL_GB:
+    name: 订阅2 套餐总量 (GiB)
+    description: 订阅只返回剩余流量时用来计算总量，留空不估算
     default_value: ''
   SUB3_URL:
-    name: 来源3 订阅链接（可选）
+    name: 订阅3 链接
+    description: 第 3 个订阅地址（可选），只保存在本机
     default_value: ''
   SUB3_NAME:
-    name: 来源3 名称（可选，留空自动识别）
+    name: 订阅3 名称
+    description: 显示在组件上的名称，留空自动识别
     default_value: ''
   SUB3_REGION:
-    name: 来源3 地区码（可选，留空自动识别）
-    default_value: ''
-  SUB3_TOTAL_GB:
-    name: 来源3 总量 GiB（可选）
+    name: 订阅3 地区码
+    description: 如 KR、US、DE，留空自动识别
     default_value: ''
   SUB3_RESET_DAY:
-    name: 来源3 重置日（可选，1~31）
+    name: 订阅3 流量重置日
+    description: 每月几号重置（1~31），留空不显示
+    default_value: ''
+  SUB3_TOTAL_GB:
+    name: 订阅3 套餐总量 (GiB)
+    description: 订阅只返回剩余流量时用来计算总量，留空不估算
     default_value: ''
   SUB4_URL:
-    name: 来源4 订阅链接（可选）
+    name: 订阅4 链接
+    description: 第 4 个订阅地址（可选），只保存在本机
     default_value: ''
   SUB4_NAME:
-    name: 来源4 名称（可选，留空自动识别）
+    name: 订阅4 名称
+    description: 显示在组件上的名称，留空自动识别
     default_value: ''
   SUB4_REGION:
-    name: 来源4 地区码（可选，留空自动识别）
-    default_value: ''
-  SUB4_TOTAL_GB:
-    name: 来源4 总量 GiB（可选）
+    name: 订阅4 地区码
+    description: 如 KR、US、DE，留空自动识别
     default_value: ''
   SUB4_RESET_DAY:
-    name: 来源4 重置日（可选，1~31）
+    name: 订阅4 流量重置日
+    description: 每月几号重置（1~31），留空不显示
     default_value: ''
-  REFRESH_MINUTES:
-    name: 刷新间隔（分钟）
-    description: 默认1440，可选30~1440；周期内复用缓存，实际调度受系统限制
-    default_value: '1440'
-  THEME:
-    name: 主题
-    description: glacier / mist / iris / seasalt / amber
-    default_value: glacier
-  UNIT:
-    name: 显示单位
-    description: GiB（1024进制）或 GB（1000进制）
-    default_value: GiB
+  SUB4_TOTAL_GB:
+    name: 订阅4 套餐总量 (GiB)
+    description: 订阅只返回剩余流量时用来计算总量，留空不估算
+    default_value: ''
   WIDGET_TITLE:
     name: 组件标题
-    default_value: 订阅余量
-  SMALL_SOURCE:
-    name: 小号组件来源
-    description: 1~4，对应已配置的来源顺序
-    default_value: '1'
-  USER_AGENT:
-    name: 自定义 User-Agent（可选）
-    description: 留空使用默认请求；组件不会轮换身份绕过访问控制
+    description: 显示在组件顶部
+    default_value: '订阅余量'
+  REFRESH_HOURS:
+    name: 刷新间隔（小时）
+    description: 0.5~24，默认 24；改成 2 可让今日用量更快出数
+    default_value: '24'
+  SUBSCRIPTION_USER_AGENT:
+    name: 订阅请求 UA
+    description: 部分订阅需特定 UA 才返回流量信息，如 clash.meta；留空使用默认
     default_value: ''
+  THEME:
+    name: 主题
+    description: glacier、mist、iris、seasalt、amber
+    default_value: 'glacier'
   DEMO_MODE:
     name: 演示模式
-    description: 设为true时只展示静态演示数据，不请求订阅；确认样式后请关闭
+    description: true 时显示示例数据，不请求订阅
     default_value: 'false'
 scriptings:
 - generic:
     name: 订阅余量
-    script_url: https://cdn.jsdelivr.net/gh/SUMKINGKUNWU/-egern-widget-quota-@main/traffic-quota.widget.js
+    script_url: https://raw.githubusercontent.com/SUMKINGKUNWU/-egern-widget-quota-/main/traffic-quota.widget.js?v=20261102-2
     timeout: 30
 widgets:
 - name: 订阅余量

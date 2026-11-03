@@ -3,7 +3,8 @@
  *
  * 读取订阅的 Subscription-Userinfo 响应头，或正文中的明确流量字段。
  * 不默认任何套餐总量，不把“未提供统计”显示成 0，不自动尝试多种客户端身份。
- * 自动统计周期：REFRESH_MINUTES，默认 1440 分钟；周期内复用缓存。
+ * 自动统计周期：REFRESH_HOURS（0.5~24），默认 24 小时；周期内复用缓存。
+ * 参数命名参考 Hark sub-traffic-hark-rings.yaml；旧参数 REFRESH_MINUTES、USER_AGENT 仍兼容。
  *
  * 本文件不含订阅地址、节点或证书，可安全地在私有仓库中维护。
  */
@@ -361,8 +362,10 @@ function updateDayStats(previous, traffic, now) {
 }
 
 function refreshMinutes(env) {
-  const raw = Number(env?.REFRESH_MINUTES);
-  if (!Number.isFinite(raw)) return DEFAULT_REFRESH_MINUTES;
+  const hours = String(env?.REFRESH_HOURS ?? '').trim();
+  const minutes = String(env?.REFRESH_MINUTES ?? '').trim();
+  const raw = hours ? Number(hours) * 60 : minutes ? Number(minutes) : NaN;
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_REFRESH_MINUTES;
   return Math.min(MAX_REFRESH_MINUTES, Math.max(MIN_REFRESH_MINUTES, Math.round(raw)));
 }
 
@@ -370,13 +373,14 @@ function refreshMinutes(env) {
 // These are display hints only: when the source exposes nothing recognizable
 // the user-supplied name and region are kept, and nothing is invented.
 const REGION_HINTS = [
-  [/香港|Hong\s*Kong|HK\b/i, 'HK'],
-  [/台湾|台灣|Taiwan|TW\b/i, 'TW'],
-  [/日本|Japan|JP\b|东京|東京|大阪/i, 'JP'],
-  [/新加坡|狮城|獅城|Singapore|SG\b/i, 'SG'],
-  [/韩国|韓國|Korea|KR\b|首尔|首爾/i, 'KR'],
-  [/美国|美國|United\s*States|USA|US\b/i, 'US'],
-  [/德国|德國|Germany|DE\b/i, 'DE'],
+  // 两字母代码要求前后都不是字母，避免 STATUS、MODE 一类单词误判。
+  [/香港|Hong\s*Kong|(?:^|[^A-Za-z])HK(?![A-Za-z])/i, 'HK'],
+  [/台湾|台灣|Taiwan|(?:^|[^A-Za-z])TW(?![A-Za-z])/i, 'TW'],
+  [/日本|Japan|(?:^|[^A-Za-z])JP(?![A-Za-z])|东京|東京|大阪/i, 'JP'],
+  [/新加坡|狮城|獅城|Singapore|(?:^|[^A-Za-z])SG(?![A-Za-z])/i, 'SG'],
+  [/韩国|韓國|Korea|(?:^|[^A-Za-z])KR(?![A-Za-z])|首尔|首爾/i, 'KR'],
+  [/美国|美國|United\s*States|USA|(?:^|[^A-Za-z])US(?![A-Za-z])/i, 'US'],
+  [/德国|德國|Germany|(?:^|[^A-Za-z])DE(?![A-Za-z])/i, 'DE'],
 ];
 
 function detectRegion(text, fallback) {
@@ -451,7 +455,7 @@ function demoTodayUsed(id) {
 }
 
 function requestHeaders(env) {
-  const ua = String(env?.USER_AGENT || '').trim();
+  const ua = String(env?.SUBSCRIPTION_USER_AGENT || env?.USER_AGENT || '').trim();
   return ua ? { 'User-Agent': ua } : {};
 }
 
