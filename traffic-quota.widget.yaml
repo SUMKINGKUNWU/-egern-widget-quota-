@@ -1,5 +1,7 @@
 name: 三国余量
 description: 手动维护的订阅额度小组件；每1440分钟获取一次，不推估套餐总量。
+author: SUMKINGKUNWU
+dns: {}
 env_schema:
   SUB1_URL:
     name: 来源1 订阅链接
