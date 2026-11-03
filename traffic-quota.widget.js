@@ -801,14 +801,15 @@ function grid(list, theme) {
   for (let i = 0; i < list.length; i += 2) {
     const pair = list.slice(i, i + 2);
     rows.push({
-      type: 'stack', direction: 'row', alignItems: 'stretch', gap: 8, flex: 1,
+      type: 'stack', direction: 'row', alignItems: 'center', gap: 8, flex: 1,
       children: [
         quadCard(pair[0], theme),
         ...(pair[1] ? [quadCard(pair[1], theme)] : [{ type: 'stack', flex: 1, children: [] }]),
       ],
     });
   }
-  return { type: 'stack', direction: 'column', alignItems: 'stretch', gap: 8, flex: 1, children: rows };
+  // Egern 的 alignItems 只支持 start／end／center，写 stretch 会让整个组件空白。
+  return { type: 'stack', direction: 'column', alignItems: 'start', gap: 8, flex: 1, children: rows };
 }
 
 function mediumWidget(ctx, list, theme) {
