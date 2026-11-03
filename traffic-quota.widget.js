@@ -613,32 +613,10 @@ function materialize(snapshot, source, env, now, fetchMode) {
 
 
 /* ------------------------------------------------------------------ */
-/* 视觉组件（环形版，参考 Hark sub-traffic-hark-rings.yaml）         */
+/* 视觉组件（列表版：每个订阅各自显示）           */
 /* ------------------------------------------------------------------ */
 
 function svgUri(svg) { return 'data:image/svg+xml,' + encodeURIComponent(svg); }
-
-function ringsSvg(values, size, stroke, gap, theme) {
-  const h = size / 2;
-  let body = '';
-  values.forEach((v, i) => {
-    const r = h - stroke / 2 - i * (stroke + gap);
-    if (r <= stroke / 2) return;
-    const p = Math.max(0, Math.min(1, Number(v.pct) || 0));
-    const color = v.color || theme.palette[i % theme.palette.length];
-    body += `<circle cx='${h}' cy='${h}' r='${r.toFixed(2)}' fill='none' stroke='${color}' stroke-opacity='0.22' stroke-width='${stroke}'/>`;
-    if (p > 0) {
-      if (p >= 0.999) {
-        body += `<circle cx='${h}' cy='${h}' r='${r.toFixed(2)}' fill='none' stroke='${color}' stroke-width='${stroke}'/>`;
-      } else {
-        const a = p * 2 * Math.PI;
-        const x = (h + r * Math.sin(a)).toFixed(2), y = (h - r * Math.cos(a)).toFixed(2);
-        body += `<path d='M ${h} ${(h - r).toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 ${p > 0.5 ? 1 : 0} 1 ${x} ${y}' fill='none' stroke='${color}' stroke-width='${stroke}' stroke-linecap='round'/>`;
-      }
-    }
-  });
-  return svgUri(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${size} ${size}'>${body}</svg>`);
-}
 
 function barSvg(pct, color, w, h) {
   const p = Math.max(0, Math.min(1, Number(pct) || 0));
@@ -689,7 +667,7 @@ function header(list, theme, title) {
   return {
     type: 'stack', direction: 'row', alignItems: 'center', gap: 5,
     children: [
-      icon('chart.pie.fill', theme.accent.light, 13),
+      icon('chart.bar.fill', theme.accent.light, 13),
       text(title, 13, theme.text, 'semibold'),
       spacer(),
       ...(bad ? [dot(theme.warn)] : []),
@@ -797,35 +775,6 @@ function dailyBudget(entry) {
   return days ? t.remaining / days : null;
 }
 
-function subRow(entry, i, barW, theme, opts = {}) {
-  const color = colorOf(i, theme);
-  const st = statusOf(entry);
-  const stColor = st.key === 'ok' ? color : st.tone === 'danger' ? theme.fail : st.tone === 'warn' ? theme.warn : theme.muted.light;
-  if (!entry.traffic) {
-    return {
-      type: 'stack', direction: 'column', alignItems: 'start', gap: 4,
-      children: [
-        { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [dot(stColor), ...nameLabel(entry, theme, 12), spacer(), text(st.label, 10, stColor, 'semibold')] },
-        text(metaLine(entry), 10, theme.muted),
-      ],
-    };
-  }
-  const t = entry.traffic;
-  const p = pctLeft(t);
-  const trailing = [];
-  trailing.push(text(fmtBytes(t.remaining), opts.valueSize || 14, theme.text, 'bold'));
-  if (p != null) trailing.push(text(`  ${Math.round(p * 100)}%`, 10, stColor, 'semibold'));
-  return {
-    type: 'stack', direction: 'column', alignItems: 'start', gap: 4,
-    children: [
-      { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [dot(stColor), ...nameLabel(entry, theme, 12), spacer(), ...trailing] },
-      { type: 'image', src: barSvg(p == null ? 1 : p, color, barW, opts.barH || 4), width: barW, height: opts.barH || 4 },
-      ...(opts.detailText ? [text(opts.detailText(entry), 9.5, theme.muted, 'medium', { minScale: 0.8 })] : []),
-      ...(opts.detail ? [text(metaLine(entry), 10, theme.muted)] : []),
-    ],
-  };
-}
-
 function nameLabel(entry, theme, size) {
   return [
     text(entry.name, size, theme.text, 'semibold'),
@@ -833,48 +782,86 @@ function nameLabel(entry, theme, size) {
   ];
 }
 
-function sumRemaining(list) {
-  const withT = list.filter(s => s.traffic && Number.isFinite(s.traffic.remaining) && s.traffic.remaining > 0);
-  return withT.reduce((a, s) => a + s.traffic.remaining, 0);
+function statusInk(st, theme, fallback) {
+  if (st.key === 'ok') return fallback;
+  return st.tone === 'danger' ? theme.fail : st.tone === 'warn' ? theme.warn : theme.muted.light;
 }
 
-function sumToday(list) {
-  // 没有任何订阅算出今日用量时返回 null，显示为 --，不显示成 0。
-  const known = list.filter(s => Number.isFinite(s.todayUsed));
-  return known.length ? known.reduce((a, s) => a + s.todayUsed, 0) : null;
+// 已用 / 总量；缺哪项就只写有的那项，不推算。
+function usedTotal(t) {
+  if (Number.isFinite(t.used) && Number.isFinite(t.total)) return `已用 ${fmtBytes(t.used)} / ${fmtBytes(t.total)}`;
+  if (t.totalUnspecified) return '总量未提供';
+  if (Number.isFinite(t.used)) return `已用 ${fmtBytes(t.used)}`;
+  if (Number.isFinite(t.total)) return `总量 ${fmtBytes(t.total)}`;
+  return '总量未提供';
 }
 
-/* ---------- 多订阅 ---------- */
+// 到期与重置；两者都没有时返回空串，不写“长期有效”之类的推测。
+function cycleText(entry) {
+  const t = entry.traffic;
+  const bits = [];
+  const r = resetInfo(entry.resetDay);
+  if (r != null) bits.push(r === 0 ? '今日重置' : `${r} 天后重置`);
+  const e = t ? daysUntil(t.expireAt) : null;
+  if (e != null) bits.push(e >= 0 ? `${e} 天后到期` : '已到期');
+  if (t?.totalEstimated) bits.push('总量手填');
+  return bits.join(' · ');
+}
+
+function joinBits(...bits) { return bits.filter(Boolean).join(' · '); }
+
+/* ---------- 多订阅：每个订阅各自一行 ---------- */
+
+// 一个订阅的行。compact：只保留一行文字；bar：显示该订阅自己的进度条。
+function subRow(entry, i, theme, o) {
+  const color = colorOf(i, theme);
+  const st = statusOf(entry);
+  const ink = statusInk(st, theme, color);
+  const t = entry.traffic;
+  const p = pctLeft(t);
+  const head = {
+    type: 'stack', direction: 'row', alignItems: 'center', gap: 5,
+    children: [
+      dot(ink),
+      ...nameLabel(entry, theme, o.nameSize),
+      ...(st.label ? [text(st.label, o.smallSize, ink, 'semibold')] : []),
+      spacer(),
+      ...(t ? [
+        text(fmtBytes(t.remaining), o.valueSize, theme.text, 'bold'),
+        ...(p != null ? [text(`${Math.round(p * 100)}%`, o.smallSize, ink, 'semibold', { minScale: 1 })] : []),
+      ] : []),
+      ...(o.compact && t ? [text(todayText(entry), o.smallSize, theme.muted, 'medium')] : []),
+    ],
+  };
+  if (o.compact) return head;
+  const children = [head];
+  if (!t) {
+    children.push(text(metaLine(entry), o.smallSize, theme.muted));
+  } else {
+    if (o.bar) children.push({ type: 'image', src: barSvg(p == null ? 1 : p, color, o.barW, o.barH), width: o.barW, height: o.barH });
+    if (o.lines === 1) {
+      children.push(text(joinBits(todayText(entry), usedTotal(t), o.cycle ? cycleText(entry) : ''), o.smallSize, theme.muted, 'medium', { minScale: 0.7 }));
+    } else {
+      children.push(text(joinBits(todayText(entry), usedTotal(t)), o.smallSize, theme.muted, 'medium', { minScale: 0.7 }));
+      const c = cycleText(entry);
+      if (c) children.push(text(c, o.smallSize, theme.muted, 'medium', { minScale: 0.7 }));
+    }
+  }
+  return { type: 'stack', direction: 'column', alignItems: 'start', gap: o.innerGap, children };
+}
 
 function multiSmall(ctx, list, theme) {
   const shown = list.slice(0, 4);
   const n = shown.length;
-  const remain = sumRemaining(shown);
-  const today = sumToday(shown);
-  const line = (s, i) => {
-    const p = s.traffic ? pctLeft(s.traffic) : null;
-    return {
-      type: 'stack', direction: 'column', alignItems: 'start', gap: 2,
-      children: [
-        { type: 'stack', direction: 'row', alignItems: 'center', gap: 4, children: [dot(colorOf(i, theme)), text(s.name, 10, theme.text, 'semibold'), spacer(), text(s.traffic ? fmtBytes(s.traffic.remaining) : '失败', 10, theme.text, 'bold'), ...(p != null ? [text(` ${Math.round(p * 100)}%`, 9, colorOf(i, theme), 'semibold')] : [])] },
-        ...(n <= 3 ? [{ type: 'image', src: barSvg(p == null ? 1 : p, colorOf(i, theme), 146, 3), width: 144, height: 3 }] : []),
-      ],
-    };
-  };
+  const opts = n <= 2
+    ? { nameSize: 11, valueSize: 12, smallSize: 9, bar: true, barW: 130, barH: 3, lines: 1, innerGap: 3 }
+    : { nameSize: 10, valueSize: 10, smallSize: 8.5, bar: false, lines: 1, innerGap: 1 };
   return {
-    type: 'widget', padding: 13, gap: 6, backgroundGradient: bg(theme), refreshAfter: refreshAfter(ctx),
+    type: 'widget', padding: 12, gap: n <= 2 ? 8 : 5, backgroundGradient: bg(theme), refreshAfter: refreshAfter(ctx),
     children: [
-      { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [icon('chart.pie.fill', theme.accent.light, 12), text(titleOf(ctx), 12, theme.text, 'semibold'), spacer(), text(lastUpdated(list).slice(-5), 9, theme.muted)] },
+      { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [icon('chart.bar.fill', theme.accent.light, 11), text(titleOf(ctx), 11, theme.text, 'semibold'), spacer(), text(lastUpdated(list), 9, theme.muted)] },
+      ...shown.map((s, i) => subRow(s, i, theme, opts)),
       spacer(),
-      {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 8,
-        children: [
-          { type: 'image', src: ringsSvg(shown.map((s, i) => ({ pct: s.traffic ? (pctLeft(s.traffic) ?? 1) : 0 })), 120, 16, 3, theme), width: 44, height: 44 },
-          { type: 'stack', direction: 'column', alignItems: 'start', gap: 0, children: [text('合计剩余', 9, theme.muted, 'medium'), bigRemain({ traffic: { remaining: remain } }, theme, 19), text(`今日 ${fmtBytes(today)}`, 9, theme.accent, 'semibold')] },
-        ],
-      },
-      spacer(),
-      ...shown.map(line),
     ],
   };
 }
@@ -882,40 +869,15 @@ function multiSmall(ctx, list, theme) {
 function multiMedium(ctx, list, theme) {
   const shown = list.slice(0, 4);
   const n = shown.length;
-  const remain = sumRemaining(shown);
-  const today = sumToday(shown);
-  const ringStroke = n >= 4 ? 10 : 12;
-  const valueSize = n >= 4 ? 12 : (n === 3 ? 13 : 14);
-  const barH = n >= 4 ? 3 : 4;
-  // 与 Hark 一致：订阅不超过 2 个时，每行多一行今日用量与重置信息。
-  const detailText = n <= 2 ? (s) => {
-    const parts = [s.traffic ? todayText(s) : '今日 --'];
-    const d = dailyBudget(s);
-    if (d != null) parts.push(`日均 ${fmtBytes(d)}`);
-    const r = resetInfo(s.resetDay);
-    const e = s.traffic ? daysUntil(s.traffic.expireAt) : null;
-    if (r != null) parts.push(r === 0 ? '今日重置' : `重置 ${r} 天`);
-    else if (e != null) parts.push(`到期 ${Math.max(0, e)} 天`);
-    return parts.join(' · ');
-  } : null;
+  let opts;
+  if (n <= 2) opts = { nameSize: 12, valueSize: 14, smallSize: 9.5, bar: true, barW: 280, barH: 4, lines: 2, innerGap: 3 };
+  else if (n === 3) opts = { nameSize: 11.5, valueSize: 13, smallSize: 9, bar: true, barW: 280, barH: 3, lines: 1, cycle: false, innerGap: 3 };
+  else opts = { nameSize: 11, valueSize: 12, smallSize: 9, compact: true };
   return {
     type: 'widget', padding: [12, 14], gap: 8, backgroundGradient: bg(theme), refreshAfter: refreshAfter(ctx),
     children: [
       header(list, theme, titleOf(ctx)),
-      {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 12,
-        children: [
-          {
-            type: 'stack', direction: 'column', alignItems: 'center', gap: 3, width: 84,
-            children: [
-              { type: 'image', src: ringsSvg(shown.map((s, i) => ({ pct: s.traffic ? (pctLeft(s.traffic) ?? 1) : 0 })), 120, ringStroke, 3, theme), width: 68, height: 68 },
-              { type: 'stack', direction: 'row', alignItems: 'end', gap: 1, children: [text(splitAmt(remain).n, 15, theme.text, 'bold', { minScale: 0.8 }), text(splitAmt(remain).u, 8, theme.muted, 'semibold', { minScale: 1 })] },
-              text(`今日 ${fmtBytes(today)}`, 9, theme.accent, 'semibold', { minScale: 0.8 }),
-            ],
-          },
-          glass(shown.map((s, i) => subRow(s, i, 190, theme, { valueSize, barH, detailText })), theme, { flex: 1, gap: n >= 4 ? 4 : (n === 3 ? 6 : 8), padding: [9, 12] }),
-        ],
-      },
+      glass(shown.map((s, i) => subRow(s, i, theme, opts)), theme, { flex: 1, gap: n <= 2 ? 10 : n === 3 ? 7 : 8, padding: [9, 12], borderRadius: 16 }),
     ],
   };
 }
@@ -923,30 +885,12 @@ function multiMedium(ctx, list, theme) {
 function multiLarge(ctx, list, theme) {
   const shown = list.slice(0, 4);
   const n = shown.length;
-  const remain = sumRemaining(shown);
-  const today = sumToday(shown);
-  const rowH = n >= 4 ? 48 : (n === 3 ? 52 : 56);
-  const rows = shown.map((s, i) => glass([subRow(s, i, 290, theme, { detail: true, valueSize: n >= 4 ? 13 : 15, barH: n >= 4 ? 4 : 5 })], theme, { padding: [9, 12], borderRadius: 16, height: rowH, gap: 0 }));
+  const opts = { nameSize: 12.5, valueSize: n >= 4 ? 14 : 16, smallSize: 10, bar: true, barW: 290, barH: n >= 4 ? 4 : 5, lines: n >= 4 ? 1 : 2, cycle: true, innerGap: 4 };
   return {
-    type: 'widget', padding: [12, 14], gap: 7, backgroundGradient: bg(theme), refreshAfter: refreshAfter(ctx),
+    type: 'widget', padding: [12, 14], gap: n >= 4 ? 6 : 8, backgroundGradient: bg(theme), refreshAfter: refreshAfter(ctx),
     children: [
       header(list, theme, titleOf(ctx)),
-      {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 14, height: n >= 4 ? 72 : 80,
-        children: [
-          { type: 'image', src: ringsSvg(shown.map((s, i) => ({ pct: s.traffic ? (pctLeft(s.traffic) ?? 1) : 0 })), 140, n >= 4 ? 10 : 13, 3, theme), width: n >= 4 ? 70 : 78, height: n >= 4 ? 70 : 78 },
-          {
-            type: 'stack', direction: 'column', alignItems: 'start', gap: 2,
-            children: [
-              text(`${n} 个订阅 · 合计剩余`, 11, theme.muted, 'medium'),
-              bigRemain({ traffic: { remaining: remain } }, theme, 30),
-              text(`今日已用 ${fmtBytes(today)}`, 11, theme.accent, 'semibold'),
-            ],
-          },
-          spacer(),
-        ],
-      },
-      ...rows,
+      ...shown.map((s, i) => glass([subRow(s, i, theme, opts)], theme, { padding: [9, 12], borderRadius: 16, gap: 0 })),
       spacer(),
     ],
   };
@@ -954,88 +898,96 @@ function multiLarge(ctx, list, theme) {
 
 /* ---------- 单订阅 ---------- */
 
-function singleSmall(ctx, entry, theme) {
+function bigLine(entry, theme, size) {
   const t = entry.traffic;
   const p = pctLeft(t);
+  return {
+    type: 'stack', direction: 'row', alignItems: 'end', gap: 6,
+    children: [
+      bigRemain(entry, theme, size),
+      ...(p != null ? [text(`剩 ${Math.round(p * 100)}%`, Math.round(size * 0.42), theme.accent, 'semibold')] : []),
+    ],
+  };
+}
+
+function singleHead(entry, theme, size) {
   const st = statusOf(entry);
+  const ink = statusInk(st, theme, theme.muted);
+  return {
+    type: 'stack', direction: 'row', alignItems: 'center', gap: 5,
+    children: [...nameLabel(entry, theme, size), spacer(), ...(st.label ? [text(st.label, size - 2, ink, 'semibold')] : [])],
+  };
+}
+
+function singleBar(entry, theme, w, h) {
+  const p = pctLeft(entry.traffic);
+  return { type: 'image', src: barSvg(p == null ? 1 : p, theme.accent.light, w, h), width: w, height: h };
+}
+
+function singleSmall(ctx, entry, theme) {
+  const t = entry.traffic;
   return {
     type: 'widget', padding: 14, gap: 6, backgroundGradient: bg(theme), refreshAfter: refreshAfter(ctx),
     children: [
-      { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [icon('chart.pie.fill', theme.accent.light, 12), text(entry.name, 12, theme.text, 'semibold'), spacer(), ...(st.label ? [dot(st.tone === 'danger' ? theme.fail : st.tone === 'warn' ? theme.warn : theme.muted)] : [])] },
+      singleHead(entry, theme, 12),
       spacer(),
-      {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 8,
-        children: [
-          { type: 'stack', direction: 'column', alignItems: 'start', gap: 0, children: [text('剩余流量', 10, theme.muted, 'medium'), bigRemain(entry, theme, 24), ...(p != null ? [text(`剩 ${Math.round(p * 100)}%`, 10, theme.accent, 'semibold')] : [])] },
-          spacer(),
-          { type: 'image', src: ringsSvg([{ pct: p == null ? 1 : p }], 100, 14, 0, theme), width: 44, height: 44 },
-        ],
-      },
+      text('剩余流量', 10, theme.muted, 'medium'),
+      bigLine(entry, theme, 24),
+      ...(t ? [singleBar(entry, theme, 130, 4)] : []),
       spacer(),
-      text(metaLine(entry), 10, theme.muted),
-      ...(t && entry.todayUsed == null ? [text(todayText(entry), 10, theme.muted)] : []),
-      ...(st.label ? [text(st.label, 10, st.tone === 'danger' ? theme.fail : st.tone === 'warn' ? theme.warn : theme.muted)] : []),
+      text(t ? todayText(entry) : metaLine(entry), 10, theme.muted, 'medium'),
+      ...(t ? [text(usedTotal(t), 9.5, theme.muted, 'medium', { minScale: 0.7 })] : []),
     ],
   };
 }
 
 function singleMedium(ctx, entry, theme) {
   const t = entry.traffic;
-  const p = pctLeft(t);
-  const daily = dailyBudget(entry);
-  const st = statusOf(entry);
-  const stInk = st.tone === 'danger' ? theme.fail : st.tone === 'warn' ? theme.warn : theme.muted;
   const kv = (k, v) => ({ type: 'stack', direction: 'column', alignItems: 'start', gap: 1, flex: 1, children: [text(k, 10, theme.muted), text(v, 13, theme.text, 'semibold')] });
+  const r = resetInfo(entry.resetDay);
+  const e = t ? daysUntil(t.expireAt) : null;
+  const cycle = r != null ? kv('重置', r === 0 ? '今日' : `${r} 天后`) : e != null ? kv('到期', e >= 0 ? `${e} 天后` : '已到期') : null;
   return {
     type: 'widget', padding: 14, gap: 8, backgroundGradient: bg(theme), refreshAfter: refreshAfter(ctx),
     children: [
       header([entry], theme, titleOf(ctx)),
-      {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 12, flex: 1,
-        children: [
-          {
-            type: 'stack', direction: 'column', alignItems: 'center', gap: 2, width: 96,
-            children: [
-              { type: 'image', src: ringsSvg([{ pct: p == null ? 1 : p }], 120, 14, 0, theme), width: 78, height: 78 },
-              text(p == null ? '--' : `剩 ${Math.round(p * 100)}%`, 11, theme.accent, 'semibold'),
-            ],
-          },
-          glass([
-            { type: 'stack', direction: 'row', alignItems: 'center', gap: 6, children: [...nameLabel(entry, theme, 11), spacer(), ...(st.label ? [text(st.label, 10, stInk, 'semibold')] : [])] },
-            bigRemain(entry, theme, 26),
-            { type: 'stack', direction: 'row', gap: 8, children: [kv('已用', t ? fmtBytes(t.used) : '--'), kv('总量', t && Number.isFinite(t.total) ? fmtBytes(t.total) : '--'), kv('日均可用', daily == null ? '--' : fmtBytes(daily))] },
-            text(metaLine(entry), 10, theme.muted),
-          ], theme, { flex: 1, gap: 4 }),
-        ],
-      },
+      glass([
+        singleHead(entry, theme, 12),
+        bigLine(entry, theme, 26),
+        ...(t ? [singleBar(entry, theme, 290, 5)] : [text(metaLine(entry), 10, theme.muted)]),
+        ...(t ? [{
+          type: 'stack', direction: 'row', gap: 8,
+          children: [
+            kv('今日已用', Number.isFinite(entry.todayUsed) ? fmtBytes(entry.todayUsed) : '--'),
+            kv('已用', fmtBytes(t.used)),
+            kv('总量', Number.isFinite(t.total) ? fmtBytes(t.total) : '--'),
+            ...(cycle ? [cycle] : []),
+          ],
+        }] : []),
+      ], theme, { flex: 1, gap: 6, padding: [10, 12], borderRadius: 16 }),
     ],
   };
 }
 
 function singleLarge(ctx, entry, theme) {
   const t = entry.traffic;
-  const p = pctLeft(t);
   const daily = dailyBudget(entry);
   const r = resetInfo(entry.resetDay);
-  const e = daysUntil(t?.expireAt);
-  const st = statusOf(entry);
-  const cell = (k, v, c) => glass([text(k, 10, theme.muted, 'medium'), text(v, 15, c || theme.text, 'bold')], theme, { flex: 1, padding: [10, 12], borderRadius: 16, gap: 3 });
+  const e = t ? daysUntil(t.expireAt) : null;
+  const cell = (k, v) => glass([text(k, 10, theme.muted, 'medium'), text(v, 15, theme.text, 'bold')], theme, { flex: 1, padding: [10, 12], borderRadius: 16, gap: 3 });
   return {
     type: 'widget', padding: 16, gap: 10, backgroundGradient: bg(theme), refreshAfter: refreshAfter(ctx),
     children: [
       header([entry], theme, titleOf(ctx)),
-      {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 14,
-        children: [
-          { type: 'image', src: ringsSvg([{ pct: p == null ? 1 : p }], 140, 16, 0, theme), width: 96, height: 96 },
-          { type: 'stack', direction: 'column', alignItems: 'start', gap: 2, children: [{ type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [...nameLabel(entry, theme, 12), text('剩余流量', 11, theme.muted, 'medium')] }, bigRemain(entry, theme, 34), text(p == null ? '' : `剩余 ${Math.round(p * 100)}% · 状态 ${st.label || '正常'}`, 11, theme.accent, 'semibold')] },
-          spacer(),
-        ],
-      },
-      { type: 'image', src: barSvg(p == null ? 1 : p, theme.accent.light, 300, 6), width: 300, height: 6 },
-      { type: 'stack', direction: 'row', gap: 8, children: [cell('下载', t && Number.isFinite(t.download) ? fmtBytes(t.download) : '--'), cell('上传', t && Number.isFinite(t.upload) ? fmtBytes(t.upload) : '--'), cell('今日已用', entry.todayUsed == null ? '--' : fmtBytes(entry.todayUsed))] },
-      { type: 'stack', direction: 'row', gap: 8, children: [cell('套餐总量', t && Number.isFinite(t.total) ? fmtBytes(t.total) : '--'), cell('日均可用', daily == null ? '--' : fmtBytes(daily)), cell('重置日', entry.resetDay || '--')] },
-      { type: 'stack', direction: 'row', gap: 8, children: [cell('套餐到期', e != null ? `${Math.max(0, e)} 天` : '--'), cell('流量重置', r != null ? (r === 0 ? '今日' : `${r} 天后`) : '--')] },
+      glass([
+        singleHead(entry, theme, 13),
+        text('剩余流量', 11, theme.muted, 'medium'),
+        bigLine(entry, theme, 34),
+        ...(t ? [singleBar(entry, theme, 290, 6)] : [text(metaLine(entry), 11, theme.muted)]),
+      ], theme, { padding: [12, 14], borderRadius: 18, gap: 5 }),
+      { type: 'stack', direction: 'row', gap: 8, children: [cell('今日已用', Number.isFinite(entry.todayUsed) ? fmtBytes(entry.todayUsed) : '--'), cell('下载', t && Number.isFinite(t.download) ? fmtBytes(t.download) : '--'), cell('上传', t && Number.isFinite(t.upload) ? fmtBytes(t.upload) : '--')] },
+      { type: 'stack', direction: 'row', gap: 8, children: [cell('已用', t ? fmtBytes(t.used) : '--'), cell('套餐总量', t && Number.isFinite(t.total) ? fmtBytes(t.total) : '--'), cell('日均可用', daily == null ? '--' : fmtBytes(daily))] },
+      { type: 'stack', direction: 'row', gap: 8, children: [cell('到期', e != null ? (e >= 0 ? `${e} 天后` : '已到期') : '--'), cell('重置', r != null ? (r === 0 ? '今日' : `${r} 天后`) : '--')] },
       spacer(),
     ],
   };
@@ -1045,7 +997,7 @@ function emptyWidget(ctx, theme) {
   return {
     type: 'widget', padding: 16, gap: 8, backgroundGradient: bg(theme),
     children: [
-      { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [icon('chart.pie.fill', theme.accent.light, 13), text(titleOf(ctx), 13, theme.text, 'semibold')] },
+      { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [icon('chart.bar.fill', theme.accent.light, 13), text(titleOf(ctx), 13, theme.text, 'semibold')] },
       spacer(),
       icon('link.badge.plus', theme.muted, 22),
       text('还没有配置额度来源', 14, theme.text, 'semibold'),
@@ -1059,7 +1011,7 @@ function errorWidget(ctx, theme, message) {
   return {
     type: 'widget', padding: 16, gap: 8, backgroundGradient: bg(theme),
     children: [
-      { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [icon('chart.pie.fill', theme.accent.light, 13), text(titleOf(ctx), 13, theme.text, 'semibold')] },
+      { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, children: [icon('chart.bar.fill', theme.accent.light, 13), text(titleOf(ctx), 13, theme.text, 'semibold')] },
       spacer(),
       icon('exclamationmark.triangle.fill', theme.warn, 22),
       text('无法生成小组件', 14, theme.text, 'semibold'),
@@ -1100,7 +1052,7 @@ export default async function (ctx) {
         type: 'widget', padding: 4, gap: 2, children: resolved.slice(0, 3).map(s => ({
           type: 'stack', direction: 'row', alignItems: 'center', gap: 4,
           children: [
-            icon('chart.pie.fill', theme.accent.light, 9),
+            icon('chart.bar.fill', theme.accent.light, 9),
             text(`${s.name} ${s.traffic ? fmtBytes(s.traffic.remaining) : '--'}`, 10, theme.text, 'semibold', { minScale: 0.6 }),
             spacer(),
           ],
