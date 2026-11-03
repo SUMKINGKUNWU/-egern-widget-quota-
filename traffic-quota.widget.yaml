@@ -93,7 +93,7 @@ env_schema:
 scriptings:
 - generic:
     name: 三国余量
-    script_url: https://raw.githubusercontent.com/SUMKINGKUNWU/-egern-widget-quota-/main/traffic-quota.widget.js
+    script_url: https://cdn.jsdelivr.net/gh/SUMKINGKUNWU/-egern-widget-quota-@main/traffic-quota.widget.js
     timeout: 30
 widgets:
 - name: 三国余量
