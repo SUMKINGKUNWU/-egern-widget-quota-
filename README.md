@@ -23,6 +23,7 @@ A privacy-minded Egern widget that shows a subscription's remaining traffic and 
 - 单来源失败不影响其他来源；保留上次成功数据并标记为缓存。
 - 默认 24 小时缓存（`REFRESH_HOURS`），周期内不重复请求订阅。
 - 参数命名与 Hark 订阅流量组件一致：`SUBn_URL`、`SUBn_NAME`、`SUBn_RESET_DAY`、`SUBn_TOTAL_GB`、`WIDGET_TITLE`、`REFRESH_HOURS`、`SUBSCRIPTION_USER_AGENT`。
+- 环形版样式（参考 Hark）：同心圆环显示各订阅剩余比例，玻璃卡列表，渐变背景。
 - 五套主题：冰川蓝、雾青灰、鸢尾紫、海盐蓝绿、石墨琥珀。
 
 ## 说明
