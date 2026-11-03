@@ -1,0 +1,100 @@
+name: 三国余量
+description: 手动维护的订阅额度小组件；每1440分钟获取一次，不推估套餐总量。
+env_schema:
+  SUB1_URL:
+    name: 来源1 订阅链接
+    description: 仅保存在本机；组件不会显示这个地址
+    default_value: ''
+  SUB1_NAME:
+    name: 来源1 名称
+    default_value: 韩国
+  SUB1_REGION:
+    name: 来源1 地区短码
+    default_value: KR
+  SUB1_TOTAL_GB:
+    name: 来源1 总量GiB（可选）
+    description: 仅当订阅只返回剩余量时用于显示比例；不会覆盖订阅报告的总量
+    default_value: ''
+  SUB1_RESET_DAY:
+    name: 来源1 重置日（可选）
+    default_value: ''
+  SUB2_URL:
+    name: 来源2 订阅链接
+    default_value: ''
+  SUB2_NAME:
+    name: 来源2 名称
+    default_value: 美国 A
+  SUB2_REGION:
+    name: 来源2 地区短码
+    default_value: US-A
+  SUB2_TOTAL_GB:
+    name: 来源2 总量GiB（可选）
+    default_value: ''
+  SUB2_RESET_DAY:
+    name: 来源2 重置日（可选）
+    default_value: ''
+  SUB3_URL:
+    name: 来源3 订阅链接
+    default_value: ''
+  SUB3_NAME:
+    name: 来源3 名称
+    default_value: 美国 B
+  SUB3_REGION:
+    name: 来源3 地区短码
+    default_value: US-B
+  SUB3_TOTAL_GB:
+    name: 来源3 总量GiB（可选）
+    default_value: ''
+  SUB3_RESET_DAY:
+    name: 来源3 重置日（可选）
+    default_value: ''
+  SUB4_URL:
+    name: 来源4 订阅链接
+    default_value: ''
+  SUB4_NAME:
+    name: 来源4 名称
+    default_value: 德国
+  SUB4_REGION:
+    name: 来源4 地区短码
+    default_value: DE
+  SUB4_TOTAL_GB:
+    name: 来源4 总量GiB（可选）
+    default_value: ''
+  SUB4_RESET_DAY:
+    name: 来源4 重置日（可选）
+    default_value: ''
+  REFRESH_MINUTES:
+    name: 刷新间隔（分钟）
+    description: 默认1440，可选30~1440；周期内复用缓存，实际调度受系统限制
+    default_value: '1440'
+  THEME:
+    name: 主题
+    description: glacier / mist / iris / seasalt / amber
+    default_value: glacier
+  UNIT:
+    name: 显示单位
+    description: GiB（1024进制）或 GB（1000进制）
+    default_value: GiB
+  WIDGET_TITLE:
+    name: 组件标题
+    default_value: 三国余量
+  SMALL_SOURCE:
+    name: 小号组件来源
+    description: 1~4，对应已配置的来源顺序
+    default_value: '1'
+  USER_AGENT:
+    name: 自定义 User-Agent（可选）
+    description: 留空使用默认请求；组件不会轮换身份绕过访问控制
+    default_value: ''
+  DEMO_MODE:
+    name: 演示模式
+    description: 设为true时只展示静态演示数据，不请求订阅；确认样式后请关闭
+    default_value: 'false'
+scriptings:
+- generic:
+    name: 三国余量
+    script_url: https://raw.githubusercontent.com/SUMKINGKUNWU/-egern-widget-quota-/main/traffic-quota.widget.js
+    timeout: 30
+widgets:
+- name: 三国余量
+  script_name: 三国余量
