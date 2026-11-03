@@ -9,7 +9,7 @@ A privacy-minded Egern widget that shows subscription traffic quotas for up to f
 - `traffic-quota.widget.yaml`：Egern 模块声明、参数和任务注册。
 - `traffic-quota.widget.js`：小组件脚本。
 
-**不包含任何节点、订阅链接、证书或密码。**订阅链接只保存在使用者的 Egern 本机。
+**不包含任何节点、订阅链接、证书或密码。**所有订阅地址字段默认留空，需要使用者自行在 Egern 中填写；订阅链接只保存在本机，不会显示在组件上。
 
 ## 安装
 
